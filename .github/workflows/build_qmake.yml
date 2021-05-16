@@ -3,8 +3,8 @@ name: QMake Build Matrix
 on: [push]
 
 env:
-  QT_VERSION: 5.15.1
-  QT_CREATOR_VERSION: 4.13.0
+  QT_VERSION: 5.15.2
+  QT_CREATOR_VERSION: 4.14.0
   PLUGIN_PRO: doxygen.pro
   PLUGIN_NAME: Doxygen
 
@@ -50,47 +50,17 @@ jobs:
 
     - name: Download Qt
       id: qt
-      uses: fpoussin/install-qt-action@v2
+      uses: jurplel/install-qt-action@v2
       with:
-        aqtversion: master
         version: "${{ env.QT_VERSION }}"
         modules: qtdeclarative qttools qtsvg
-        tools:
-          - name: qtcreator
-            version: "${{ env.QT_CREATOR_VERSION }}"
-          - name: qtcreatordev
-            version: "${{ env.QT_CREATOR_VERSION }}"
-        arch: "${{ matrix.config.msvc }}"
+        tools: 'tools_qtcreator,"${{ env.QT_CREATOR_VERSION }}"-0,qt.tools.qtcreator tools_qtcreator,"${{ env.QT_CREATOR_VERSION }}"-0,qt.tools.qtcreatordev'
 
-    - name: Configure
+    - name: Prepare
       shell: cmake -P {0}
       run: |
-        if ("${{ runner.os }}" STREQUAL "Windows" AND NOT "x${{ matrix.config.environment_script }}" STREQUAL "x")
-          execute_process(
-            COMMAND "${{ matrix.config.environment_script }}" && set
-            OUTPUT_FILE environment_script_output.txt
-          )
-          file(STRINGS environment_script_output.txt output_lines)
-          foreach(line IN LISTS output_lines)
-            if (line MATCHES "^([a-zA-Z0-9_-]+)=(.*)$")
-              set(ENV{${CMAKE_MATCH_1}} "${CMAKE_MATCH_2}")
-
-              # Set for other steps
-              message("::set-env name=${CMAKE_MATCH_1}::${CMAKE_MATCH_2}")
-            endif()
-          endforeach()
-        endif()
-
-        file(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}/qtcreator" qtcreator_dir)
-
-        execute_process(
-          COMMAND qmake
-            $ENV{PLUGIN_PRO}
-            CONFIG+=release
-            QTC_SOURCE="${qtcreator_dir}"
-            QTC_BUILD="${qtcreator_dir}"
-          RESULT_VARIABLE result
-        )
+        file(GLOB LIB_FILES "$ENV{GITHUB_WORKSPACE}/qtcreator/lib/qtcreator/*")
+        file(COPY "${LIB_FILES}" "$ENV{GITHUB_WORKSPACE}/qtcreator/dev/lib/")
         if (NOT result EQUAL 0)
           message(FATAL_ERROR "Bad exit status")
         endif()
@@ -98,20 +68,13 @@ jobs:
     - name: Build
       shell: cmake -P {0}
       run: |
-        if (NOT "${{ runner.os }}" STREQUAL "Windows")
-          set(ENV{LD_LIBRARY_PATH} "qtcreator/lib/Qt/lib:$ENV{LD_LIBRARY_PATH}")
-        endif()
+        set(ENV{CMAKE_PREFIX_PATH} "$ENV{GITHUB_WORKSPACE}/qtcreator/dev:ENV{Qt5_DIR}")
 
         include(ProcessorCount)
         ProcessorCount(N)
 
-        set(make_program make -j ${N})
-        if ("${{ runner.os }}" STREQUAL "Windows")
-          set(make_program "qtcreator/bin/jom")
-        endif()
-
         execute_process(
-          COMMAND ${make_program}
+          COMMAND ${CMAKE_COMMAND}
           RESULT_VARIABLE result
         )
         if (NOT result EQUAL 0)
